@@ -14,7 +14,7 @@ app.add_middleware(
 
 @app.post("/tiles")
 def tiles(body: dict):
-    sport = body.get("sport", "ALL")
+    sport = body.get("sport", "NFL")
     page = body.get("page", "straights")
     prompt = body.get("prompt", "")
     tier = body.get("tier", "free")

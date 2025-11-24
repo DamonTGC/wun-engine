@@ -1,356 +1,187 @@
 from __future__ import annotations
 
-"""
-tiles.py
+from typing import Any, Dict, List, Optional, Tuple
 
-Standalone tile generator for the WUN Engine.
-
-Right now this DOES NOT CALL The Odds API – it uses
-pattern data plus some variation to:
-
-- Build straights / props / parlay / teaser tiles
-- Assign EV and a tier (standard / nickel / dime)
-- Respect the requested user tier ("free", "nickel", "dime")
-  by marking tiles as blurred or visible
-- Apply simple prompt filtering (team / player / market words)
-
-This keeps the engine running cleanly on Railway while we
-finish wiring in the full Odds API + 50k-sim model.
-"""
-
-from typing import Any, Dict, List, Tuple
+from normalizer import NormalizedProp, normalize_odds_api_events
+from props_fetch import fetch_odds_for_sport
 
 
-# -------------------------------------------------------
-# Base pattern data (mirrors the look of your frontend)
-# -------------------------------------------------------
-
-BASE_STRAIGHTS: List[Dict[str, Any]] = [
-    {
-        "page": "straights",
-        "sport": "NFL",
-        "label": "Bills @ Jets",
-        "stat": "Spread",
-        "line": "BUF -3.5",
-        "ev": 6.4,
-        "team_name": "Buffalo Bills vs New York Jets",
-        "jersey": "17",
-        "primary_color": "#00338D",
-        "secondary_color": "#C60C30",
-        "game": "Pre-match • Spread",
-        "price": "-110",
-    },
-    {
-        "page": "straights",
-        "sport": "NBA",
-        "label": "Lakers @ Warriors",
-        "stat": "Total",
-        "line": "O 228.5",
-        "ev": 5.1,
-        "team_name": "Los Angeles Lakers vs Golden State Warriors",
-        "jersey": "23",
-        "primary_color": "#FDB927",
-        "secondary_color": "#552583",
-        "game": "Pre-match • O/U",
-        "price": "-110",
-    },
-    {
-        "page": "straights",
-        "sport": "NHL",
-        "label": "Avs @ Canucks",
-        "stat": "Moneyline",
-        "line": "COL -125",
-        "ev": 4.2,
-        "team_name": "Colorado Avalanche vs Vancouver Canucks",
-        "jersey": "29",
-        "primary_color": "#6F263D",
-        "secondary_color": "#236192",
-        "game": "Pre-match • ML",
-        "price": "-125",
-    },
-]
-
-BASE_PROPS: List[Dict[str, Any]] = [
-    {
-        "page": "props",
-        "sport": "NBA",
-        "player": "James Harden",
-        "stat": "PRA",
-        "line": "41.5",
-        "ev": 9.3,
-        "team_name": "Los Angeles Clippers",
-        "jersey": "1",
-        "primary_color": "#C8102E",
-        "secondary_color": "#1D428A",
-        "game": "LAC @ ORL • Prop",
-        "price": "-119",
-    },
-    {
-        "page": "props",
-        "sport": "NFL",
-        "player": "Josh Allen",
-        "stat": "Pass+Rush YDS",
-        "line": "295.5",
-        "ev": 6.8,
-        "team_name": "Buffalo Bills",
-        "jersey": "17",
-        "primary_color": "#00338D",
-        "secondary_color": "#C60C30",
-        "game": "BUF @ NYJ • Prop",
-        "price": "-115",
-    },
-    {
-        "page": "props",
-        "sport": "NBA",
-        "player": "Devin Booker",
-        "stat": "Points",
-        "line": "29.5",
-        "ev": 7.4,
-        "team_name": "Phoenix Suns",
-        "jersey": "1",
-        "primary_color": "#E56020",
-        "secondary_color": "#1D1160",
-        "game": "PHX @ LAL • Prop",
-        "price": "-113",
-    },
-]
-
-BASE_PARLAYS: List[Dict[str, Any]] = [
-    {
-        "page": "parlays",
-        "sport": "NFL",
-        "label": "3-leg NFL parlay",
-        "stat": "Spread",
-        "line": "+600",
-        "ev": 12.3,
-        "team_name": "Sunday slate",
-        "jersey": "3",
-        "primary_color": "#125740",
-        "secondary_color": "#FFB81C",
-        "game": "3 legs • ML / Spread / Total",
-        "price": "+600",
-        "legs": [
-            {"label": "Leg 1", "team": "Bills", "market": "Spread", "line": "-1.5"},
-            {"label": "Leg 2", "team": "Chiefs", "market": "ML", "line": "KC ML"},
-            {"label": "Leg 3", "team": "Eagles", "market": "Total", "line": "O 44.5"},
-        ],
-    },
-]
-
-BASE_TEASERS: List[Dict[str, Any]] = [
-    {
-        "page": "teasers",
-        "sport": "NFL",
-        "label": "10-leg NFL teaser",
-        "stat": "Spread",
-        "line": "+1000",
-        "ev": 22.5,
-        "team_name": "Sunday mega teaser",
-        "jersey": "10",
-        "primary_color": "#FF6F00",
-        "secondary_color": "#1B5E20",
-        "game": "+7 teaser • 10 legs",
-        "price": "+1000",
-        "legs": [
-            {"label": "Leg 1", "team": "BUF", "market": "+7", "line": "BUF -3.5 ➜ +3.5"},
-            {"label": "Leg 2", "team": "KC", "market": "+7", "line": "KC -2.5 ➜ +4.5"},
-            {"label": "Leg 3", "team": "PHI", "market": "+7", "line": "PHI -1.5 ➜ +5.5"},
-        ],
-    },
-]
+# ---------- Prompt parsing helpers ----------
 
 
-# -------------------------------------------------------
-# Tier logic: Standard / Nickel / Dime Plays
-# -------------------------------------------------------
-
-
-def compute_tier(ev: float) -> Tuple[str, str]:
+def _detect_sport_from_prompt(prompt: str) -> Tuple[str, str]:
     """
-    Map EV% to a tier + label.
-
-    You can tune the thresholds easily here without touching the rest.
-
-    - ev >= 10.0  => "dime"   / "Dime Play"
-    - ev >=  6.0  => "nickel" / "Nickel Play"
-    - else        => "standard" / "Standard Play"
+    Map a free-text prompt to an Odds API sport key + human label.
+    Default: NBA.
     """
-    if ev >= 10.0:
-        return "dime", "Dime Play"
-    if ev >= 6.0:
-        return "nickel", "Nickel Play"
-    return "standard", "Standard Play"
+    p = prompt.lower()
+
+    if "nfl" in p or "football" in p:
+        return "americanfootball_nfl", "NFL"
+    if "nhl" in p or "hockey" in p:
+        return "icehockey_nhl", "NHL"
+    if "cbb" in p or "college basketball" in p or "ncaa basketball" in p:
+        return "basketball_ncaab", "NCAA Basketball"
+    if "cfb" in p or "college football" in p:
+        return "americanfootball_ncaaf", "NCAA Football"
+    if "wnba" in p:
+        return "basketball_wnba", "WNBA"
+
+    # default
+    return "basketball_nba", "NBA"
 
 
-def is_tier_visible_for_user(tile_tier: str, user_tier: str) -> bool:
+def _tier_for_confidence(conf: float) -> str:
     """
-    Access rules based on subscription tier:
+    Very simple tiering based ONLY on market-implied probability.
 
-    - free   (tier="free")   => can see only STANDARD plays
-    - nickel (tier="nickel") => can see STANDARD + NICKEL
-    - dime   (tier="dime")   => can see everything
+    - demon  : super high confidence (market thinks it's ~62%+)
+    - goblin : solid lean (~57–62%)
+    - free   : everything else
     """
-    user_tier = (user_tier or "free").lower()
-    tile_tier = tile_tier.lower()
-
-    if user_tier == "dime":
-        return True
-    if user_tier == "nickel":
-        return tile_tier in {"standard", "nickel"}
-    # default = free
-    return tile_tier == "standard"
+    if conf >= 0.62:
+        return "demon"
+    if conf >= 0.57:
+        return "goblin"
+    return "free"
 
 
-# -------------------------------------------------------
-# Helpers
-# -------------------------------------------------------
+# ---------- Core tile generation ----------
 
 
-def _base_for_page(page: str) -> List[Dict[str, Any]]:
-    page = (page or "").lower()
-    if page == "straights":
-        return BASE_STRAIGHTS
-    if page == "props":
-        return BASE_PROPS
-    if page == "parlays":
-        return BASE_PARLAYS
-    if page == "teasers":
-        return BASE_TEASERS
-    return []
-
-
-def _clone_tiles(base: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
+def _prop_to_tile(p: NormalizedProp) -> Dict[str, Any]:
     """
-    Take the small base pattern list and expand up to n tiles with
-    small EV / avgLast5 variation so the UI looks populated.
-
-    This is just a front-end demo layer until the real sim hooks in.
+    Convert a NormalizedProp to a front-end-friendly dict ("tile").
     """
-    tiles: List[Dict[str, Any]] = []
-    for i in range(n):
-        pattern = base[i % len(base)]
-        bump = ((i % 5) - 2) * 0.5  # -1.0 .. +1.0
-        ev = float(pattern["ev"]) + bump
-        avg_last5 = max(0.0, ev * 3.0 + 10.0)
-        model_val = max(0.0, ev * 6.0 + 200.0)
-
-        t = dict(pattern)
-        t["id"] = f"{pattern['page']}-{i+1}"
-        t["ev"] = round(ev, 1)
-        t["avgLast5"] = round(avg_last5, 1)
-        t["model"] = round(model_val, 1)
-        tiles.append(t)
-    return tiles
-
-
-def _filter_by_sport(tiles: List[Dict[str, Any]], sport: str) -> List[Dict[str, Any]]:
-    sport = (sport or "ALL").upper()
-    if sport in ("", "ALL"):
-        return tiles
-    return [t for t in tiles if t.get("sport", "").upper() == sport]
+    return {
+        "id": p.id,
+        "sport": p.sport,
+        "league": p.league,
+        "event_id": p.event_id,
+        "event_start": p.event_start.isoformat(),
+        "home_team": p.home_team,
+        "away_team": p.away_team,
+        "player": p.player_name,
+        "market": p.market,
+        "line": p.line,
+        "bookmaker": p.bookmaker,
+        "over_price": p.over_price,
+        "under_price": p.under_price,
+        "best_side": p.best_side,
+        "best_side_prob": p.best_side_prob,
+        "confidence_score": p.confidence_score,
+        "tier": _tier_for_confidence(p.confidence_score or 0.0),
+    }
 
 
-def _filter_by_prompt(tiles: List[Dict[str, Any]], prompt: str) -> List[Dict[str, Any]]:
-    if not prompt:
-        return tiles
-    q = prompt.lower()
+def _build_summary(
+    prompt: str,
+    sport_label: str,
+    props: List[NormalizedProp],
+) -> str:
+    """
+    Build a short "Dime analysis" string that you can show above the tiles.
+    """
+    if not props:
+        return (
+            f"Dime AI read your prompt \"{prompt}\" but couldn't find live "
+            f"{sport_label} player props right now."
+        )
 
-    def match(t: Dict[str, Any]) -> bool:
-        pieces = [
-            t.get("label", ""),
-            t.get("player", ""),
-            t.get("team_name", ""),
-            t.get("game", ""),
-            t.get("stat", ""),
-            t.get("line", ""),
-        ]
-        text = " ".join(str(x) for x in pieces).lower()
-        return q in text
+    n_props = len(props)
+    n_games = len({p.event_id for p in props})
 
-    return [t for t in tiles if match(t)]
+    top = sorted(props, key=lambda p: (p.confidence_score or 0.0), reverse=True)[:3]
 
+    lines = [
+        f"Dime AI interpretation → {sport_label} slate, focusing on player props.",
+        f"Found {n_props} props across {n_games} games.",
+        "Top edges by market-implied confidence:",
+    ]
 
-def _build_summary(prompt: str, page: str, sport: str, total: int) -> str:
-    page = (page or "").lower()
-    sport = (sport or "ALL").upper()
+    for p in top:
+        side = p.best_side or "over"
+        prob = (p.confidence_score or 0.0) * 100.0
+        lines.append(
+            f"• {p.player_name} {side} {p.line} {p.market} at {p.bookmaker} "
+            f"(~{prob:.1f}% implied)."
+        )
 
-    if not prompt:
-        if sport == "ALL":
-            return f"Showing top {total} {page} edges across all sports."
-        return f"Showing top {total} {page} edges for {sport}."
-
-    return (
-        f"Search for “{prompt}” on {page} – "
-        f"{total} high-EV candidates after filters."
-    )
-
-
-# -------------------------------------------------------
-# Public entrypoint used by FastAPI (api/main.py)
-# -------------------------------------------------------
+    return "\n".join(lines)
 
 
 def generate_tiles(
-    sport: str = "ALL",
-    page: str = "straights",
-    prompt: str = "",
-    tier: str = "free",
+    sport: Optional[str] = None,
+    page: Optional[str] = None,
+    prompt: Optional[str] = None,
+    tier: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Main function the FastAPI layer calls.
+    Main entry point used by api/main.py.
 
-    Returns JSON shape like:
+    - If `sport` is given (e.g., "NBA"), we respect it.
+    - Otherwise, we infer sport from the free-text `prompt`.
 
+    Returns a dict with:
       {
-        "summary": "...",
-        "tiles": [
-           {
-             "id": "props-1",
-             "page": "props",
-             "sport": "NFL",
-             "player": "Josh Allen",
-             "stat": "Pass+Rush YDS",
-             "line": "295.5",
-             "ev": 6.8,
-             "avgLast5": 30.1,
-             "model": 245.6,
-             "tier": "nickel",
-             "tier_label": "Nickel Play",
-             "visible": false,
-             "blurred": true,
-             ...
-           }
-        ]
+        "summary": str,
+        "tiles": [ { ...tile... }, ... ]
       }
     """
-    page = (page or "straights").lower()
-    sport = sport or "ALL"
-    prompt = (prompt or "").strip()
-    user_tier = (tier or "free").lower()
+    prompt = (prompt or "").strip() or "today's slate"
 
-    base = _base_for_page(page)
-    if not base:
-        return {"summary": "No tiles for this page yet.", "tiles": []}
+    # decide sport
+    if sport:
+        sport_lower = sport.lower()
+        if sport_lower in {"nba", "basketball_nba"}:
+            sport_key, sport_label = "basketball_nba", "NBA"
+        elif sport_lower in {"nfl", "americanfootball_nfl"}:
+            sport_key, sport_label = "americanfootball_nfl", "NFL"
+        elif sport_lower in {"nhl", "icehockey_nhl"}:
+            sport_key, sport_label = "icehockey_nhl", "NHL"
+        elif sport_lower in {"cbb", "ncaab", "basketball_ncaab"}:
+            sport_key, sport_label = "basketball_ncaab", "NCAA Basketball"
+        elif sport_lower in {"cfb", "ncaaf", "americanfootball_ncaaf"}:
+            sport_key, sport_label = "americanfootball_ncaaf", "NCAA Football"
+        else:
+            sport_key, sport_label = _detect_sport_from_prompt(prompt)
+    else:
+        sport_key, sport_label = _detect_sport_from_prompt(prompt)
 
-    # For straights / props: 50, parlays / teasers: 25
-    target_n = 50 if page in ("straights", "props") else 25
-    tiles = _clone_tiles(base, target_n)
-    tiles = _filter_by_sport(tiles, sport)
-    tiles = _filter_by_prompt(tiles, prompt)
+    # 1) fetch raw odds for that sport
+    raw_events = fetch_odds_for_sport(sport_key)
 
-    # Attach tier + visibility flags
-    for t in tiles:
-        ev = float(t.get("ev", 0.0))
-        tier_key, tier_label = compute_tier(ev)
-        t["tier"] = tier_key          # "standard" | "nickel" | "dime"
-        t["tier_label"] = tier_label  # "Standard Play" | "Nickel Play" | "Dime Play"
-        t["visible"] = is_tier_visible_for_user(tier_key, user_tier)
-        t["blurred"] = not t["visible"]
+    # 2) normalize to a flat list of props
+    props = normalize_odds_api_events(
+        sport=sport_key, league=sport_label, raw_events=raw_events
+    )
 
-    summary = _build_summary(prompt, page, sport, len(tiles))
+    # Optional: filter by requested tier
+    if tier and tier.lower() in {"free", "goblin", "demon"}:
+        wanted = tier.lower()
+        props = [
+            p
+            for p in props
+            if _tier_for_confidence(p.confidence_score or 0.0) == wanted
+        ]
 
-    return {
-        "summary": summary,
-        "tiles": tiles,
-    }
+    # Sort by descending confidence
+    props.sort(key=lambda p: (p.confidence_score or 0.0), reverse=True)
 
+    # Simple pagination by "page" (each "page" = 25 tiles)
+    page_index = 0
+    try:
+        if page is not None:
+            page_index = max(int(page), 0)
+    except ValueError:
+        page_index = 0
+
+    PAGE_SIZE = 25
+    start = page_index * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_props = props[start:end]
+
+    tiles = [_prop_to_tile(p) for p in page_props]
+    summary = _build_summary(prompt, sport_label, props)
+
+    return {"summary": summary, "tiles": tiles}

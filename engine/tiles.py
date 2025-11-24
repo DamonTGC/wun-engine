@@ -231,12 +231,7 @@ def generate_tiles(sport: str, page: str, prompt: str, tier: str = "free"):
     page = page.lower()
     sport = sport.upper()
 
-    # 🚧 Props under construction: return empty list for now
-    if page == "props":
-        print("[INFO] Props page is under construction – no tiles returned.")
-        return []
-
-    if page in ("straights",):
+    if page in ("straights", "props"):
         return generate_single_leg_tiles(sport, page, prompt, tier)
     if page == "parlays":
         return generate_parlay_tiles(sport, prompt, tier)
