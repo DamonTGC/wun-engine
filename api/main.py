@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from tiles import generate_tiles
+from engine.tiles import generate_tiles
 
 app = FastAPI(title="WUN Engine")
 
