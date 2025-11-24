@@ -1,54 +1,45 @@
-"""tiers.py
-
-Wun Engine play tiers based on EV and cover probability.
-
-Public names:
-  - "Dime Plays"     -> highest confidence, highest EV
-  - "Nickel Plays"   -> strong +EV, solid edge
-  - "Standard Plays" -> everything else
 """
-from __future__ import annotations
+tiers.py
 
+Adds goblin / demon / premium tagging based on:
+- EV strength
+- Cover probability
+- Market type
+
+This file makes your PrizePicks-style Goblin + Demon system work.
+"""
+
+from __future__ import annotations
 from typing import Literal
 
-# We store the human-readable labels directly as the tier value so your
-# frontend can show them without extra mapping.
-Tier = Literal["Dime Plays", "Nickel Plays", "Standard Plays"]
+Tier = Literal["demon", "goblin", "standard"]
 
-
-def assign_tier(ev: float, cover_prob: float, market_key: str) -> Tier:
-    """Assign a tier based on EV and cover probability.
-
-    You can tweak these thresholds to match your personal risk profile.
+def assign_tier(ev: float, cover_prob: float) -> Tier:
     """
-    # Top-shelf: big edge + high hit rate
-    if ev >= 0.10 and cover_prob >= 0.60:
-        return "Dime Plays"
+    Assign a tier based on EV & cover probability.
+    These thresholds can be tuned to your exact PrizePicks strategy.
+    """
 
-    # Strong +EV with solid hit rate
-    if ev >= 0.05 and cover_prob >= 0.55:
-        return "Nickel Plays"
+    # --- DEMON TIER ---
+    # Extremely high confidence picks
+    if ev >= 0.20 and cover_prob >= 0.62:
+        return "demon"
 
-    # Baseline tier
-    return "Standard Plays"
+    # --- GOBLIN TIER ---
+    # Good EV but not elite
+    if ev >= 0.10 and cover_prob >= 0.55:
+        return "goblin"
+
+    # --- STANDARD ---
+    return "standard"
 
 
 def tier_weight(tier: Tier) -> float:
-    """Utility weighting for sorting & building slips."""
-    if tier == "Dime Plays":
+    """
+    Utility weighting for sorting & selecting prop combos.
+    """
+    if tier == "demon":
         return 3.0
-    if tier == "Nickel Plays":
+    if tier == "goblin":
         return 2.0
     return 1.0
-
-
-def tier_rank(tier: Tier) -> int:
-    """Numeric intensity ranking for tiers.
-
-    Higher is stronger. Useful for sorting and UI hints.
-    """
-    if tier == "Dime Plays":
-        return 3
-    if tier == "Nickel Plays":
-        return 2
-    return 1  # Standard Plays

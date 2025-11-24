@@ -1,59 +1,74 @@
-"""http_client.py
-Simple HTTP wrapper for The Odds API.
 """
-from __future__ import annotations
+http_client.py
+Wrapper for The Odds API GET requests.
+"""
 
-from typing import Any, Dict, Tuple
+import os
 import requests
+from typing import Tuple, Dict, Any
+from dotenv import load_dotenv
 
-from config import ODDS_API_KEY, ODDS_API_BASE_URL
+load_dotenv()
 
-
-class OddsAPIError(RuntimeError):
-    """Raised when The Odds API returns an error response."""
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
+ODDS_API_BASE_URL = os.getenv("ODDS_API_BASE_URL", "https://api.the-odds-api.com/v4")
 
 
 class OddsAPIClient:
-    """Lightweight client around The Odds API v4."""
+    """Simple HTTP client for The Odds API"""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
-        self.api_key = api_key or ODDS_API_KEY
-        self.base_url = (base_url or ODDS_API_BASE_URL).rstrip("/")
+    def __init__(self, api_key: str, base_url: str = ODDS_API_BASE_URL):
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+
         if not self.api_key:
-            raise OddsAPIError("ODDS_API_KEY is not configured. Set it in .env or environment.")
+            raise ValueError("Missing ODDS_API_KEY in .env")
 
-    def _build_url(self, path: str) -> str:
+    def get(self, path: str, params: Dict[str, Any] = None) -> Any:
+        """Perform GET request to The Odds API"""
         if not path.startswith("/"):
             path = "/" + path
-        return self.base_url + path
+        
+        url = self.base_url + path
 
-    def get(self, path: str, params: Dict[str, Any] | None = None) -> Any:
-        """Perform a GET request and return decoded JSON, or raise OddsAPIError."""
-        url = self._build_url(path)
-        params = dict(params or {})
-        params.setdefault("apiKey", self.api_key)
+        if params is None:
+            params = {}
 
-        resp = requests.get(url, params=params, timeout=10)
+        params["apiKey"] = self.api_key
+
+        resp = requests.get(url, params=params)
         if resp.status_code != 200:
-            # Try to include Odds API error body for easier debugging
-            try:
-                data = resp.json()
-            except Exception:
-                data = {"message": resp.text}
-            raise OddsAPIError(
-                f"Odds API error {resp.status_code}: {data.get('message')}"
+            raise RuntimeError(
+                f"Odds API error {resp.status_code}: {resp.text}"
             )
-        try:
-            return resp.json()
-        except Exception as exc:
-            raise OddsAPIError(f"Failed to decode JSON from Odds API: {exc}") from exc
+
+        return resp.json()
 
 
-def odds_get(path: str, params: Dict[str, Any] | None = None) -> Tuple[Any, int]:
-    """Convenience function for simple scripts.
+# ---------------------------
+# Legacy simple function wrapper
+# ---------------------------
 
-    Returns (data, status_code). On error, raises OddsAPIError.
+def odds_get(path: str, params: Dict[str, Any]):
     """
-    client = OddsAPIClient()
-    data = client.get(path, params or {})
-    return data, 200
+    Compatibility wrapper so older code still works.
+    Returns: (json, status_code)
+    """
+    if not path.startswith("/"):
+        path = "/" + path
+
+    url = ODDS_API_BASE_URL.rstrip("/") + path
+
+    params = params.copy()
+    params["apiKey"] = ODDS_API_KEY
+
+    resp = requests.get(url, params=params)
+
+    try:
+        data = resp.json()
+    except:
+        data = None
+
+    return data, resp.status_code
+
+

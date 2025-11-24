@@ -14,16 +14,18 @@ pattern data plus some variation to:
   by marking tiles as blurred or visible
 - Apply simple prompt filtering (team / player / market words)
 
-This keeps the engine running cleanly while we
+This keeps the engine running cleanly on Railway while we
 finish wiring in the full Odds API + 50k-sim model.
 """
 
 from typing import Any, Dict, List, Tuple
 
 
-# ------------- base patterns (very similar to your frontend) -------------
+# -------------------------------------------------------
+# Base pattern data (mirrors the look of your frontend)
+# -------------------------------------------------------
 
-BASE_STRAIGHTS = [
+BASE_STRAIGHTS: List[Dict[str, Any]] = [
     {
         "page": "straights",
         "sport": "NFL",
@@ -68,7 +70,7 @@ BASE_STRAIGHTS = [
     },
 ]
 
-BASE_PROPS = [
+BASE_PROPS: List[Dict[str, Any]] = [
     {
         "page": "props",
         "sport": "NBA",
@@ -113,7 +115,7 @@ BASE_PROPS = [
     },
 ]
 
-BASE_PARLAYS = [
+BASE_PARLAYS: List[Dict[str, Any]] = [
     {
         "page": "parlays",
         "sport": "NFL",
@@ -135,7 +137,7 @@ BASE_PARLAYS = [
     },
 ]
 
-BASE_TEASERS = [
+BASE_TEASERS: List[Dict[str, Any]] = [
     {
         "page": "teasers",
         "sport": "NFL",
@@ -150,30 +152,17 @@ BASE_TEASERS = [
         "game": "+7 teaser • 10 legs",
         "price": "+1000",
         "legs": [
-            {
-                "label": "Leg 1",
-                "team": "BUF",
-                "market": "+7",
-                "line": "BUF -3.5 ➜ +3.5",
-            },
-            {
-                "label": "Leg 2",
-                "team": "KC",
-                "market": "+7",
-                "line": "KC -2.5 ➜ +4.5",
-            },
-            {
-                "label": "Leg 3",
-                "team": "PHI",
-                "market": "+7",
-                "line": "PHI -1.5 ➜ +5.5",
-            },
+            {"label": "Leg 1", "team": "BUF", "market": "+7", "line": "BUF -3.5 ➜ +3.5"},
+            {"label": "Leg 2", "team": "KC", "market": "+7", "line": "KC -2.5 ➜ +4.5"},
+            {"label": "Leg 3", "team": "PHI", "market": "+7", "line": "PHI -1.5 ➜ +5.5"},
         ],
     },
 ]
 
 
-# --------- tier logic (STANDARD / NICKEL / DIME plays) ---------
+# -------------------------------------------------------
+# Tier logic: Standard / Nickel / Dime Plays
+# -------------------------------------------------------
 
 
 def compute_tier(ev: float) -> Tuple[str, str]:
@@ -181,6 +170,10 @@ def compute_tier(ev: float) -> Tuple[str, str]:
     Map EV% to a tier + label.
 
     You can tune the thresholds easily here without touching the rest.
+
+    - ev >= 10.0  => "dime"   / "Dime Play"
+    - ev >=  6.0  => "nickel" / "Nickel Play"
+    - else        => "standard" / "Standard Play"
     """
     if ev >= 10.0:
         return "dime", "Dime Play"
@@ -191,10 +184,10 @@ def compute_tier(ev: float) -> Tuple[str, str]:
 
 def is_tier_visible_for_user(tile_tier: str, user_tier: str) -> bool:
     """
-    Access rules:
+    Access rules based on subscription tier:
 
-    - free   (tier="free")   => can see only standard plays
-    - nickel (tier="nickel") => can see standard + nickel
+    - free   (tier="free")   => can see only STANDARD plays
+    - nickel (tier="nickel") => can see STANDARD + NICKEL
     - dime   (tier="dime")   => can see everything
     """
     user_tier = (user_tier or "free").lower()
@@ -204,14 +197,16 @@ def is_tier_visible_for_user(tile_tier: str, user_tier: str) -> bool:
         return True
     if user_tier == "nickel":
         return tile_tier in {"standard", "nickel"}
-    # free
+    # default = free
     return tile_tier == "standard"
 
 
-# --------- helpers ---------
+# -------------------------------------------------------
+# Helpers
+# -------------------------------------------------------
 
 
-def _base_for_page(page: str) -> list[dict]:
+def _base_for_page(page: str) -> List[Dict[str, Any]]:
     page = (page or "").lower()
     if page == "straights":
         return BASE_STRAIGHTS
@@ -224,12 +219,14 @@ def _base_for_page(page: str) -> list[dict]:
     return []
 
 
-def _clone_tiles(base: list[dict], n: int) -> list[dict]:
+def _clone_tiles(base: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
     """
     Take the small base pattern list and expand up to n tiles with
     small EV / avgLast5 variation so the UI looks populated.
+
+    This is just a front-end demo layer until the real sim hooks in.
     """
-    tiles: list[dict] = []
+    tiles: List[Dict[str, Any]] = []
     for i in range(n):
         pattern = base[i % len(base)]
         bump = ((i % 5) - 2) * 0.5  # -1.0 .. +1.0
@@ -246,20 +243,20 @@ def _clone_tiles(base: list[dict], n: int) -> list[dict]:
     return tiles
 
 
-def _filter_by_sport(tiles: list[dict], sport: str) -> list[dict]:
+def _filter_by_sport(tiles: List[Dict[str, Any]], sport: str) -> List[Dict[str, Any]]:
     sport = (sport or "ALL").upper()
     if sport in ("", "ALL"):
         return tiles
     return [t for t in tiles if t.get("sport", "").upper() == sport]
 
 
-def _filter_by_prompt(tiles: list[dict], prompt: str) -> list[dict]:
+def _filter_by_prompt(tiles: List[Dict[str, Any]], prompt: str) -> List[Dict[str, Any]]:
     if not prompt:
         return tiles
     q = prompt.lower()
 
-    def match(t: dict) -> bool:
-        text_parts = [
+    def match(t: Dict[str, Any]) -> bool:
+        pieces = [
             t.get("label", ""),
             t.get("player", ""),
             t.get("team_name", ""),
@@ -267,28 +264,30 @@ def _filter_by_prompt(tiles: list[dict], prompt: str) -> list[dict]:
             t.get("stat", ""),
             t.get("line", ""),
         ]
-        text = " ".join(str(x) for x in text_parts).lower()
+        text = " ".join(str(x) for x in pieces).lower()
         return q in text
 
     return [t for t in tiles if match(t)]
 
 
-def _build_summary(prompt: str, page: str, sport: str, total_count: int) -> str:
-    page = page.lower()
-    sport = sport.upper() or "ALL"
+def _build_summary(prompt: str, page: str, sport: str, total: int) -> str:
+    page = (page or "").lower()
+    sport = (sport or "ALL").upper()
 
     if not prompt:
         if sport == "ALL":
-            return f"Showing top {total_count} {page} edges across all sports."
-        return f"Showing top {total_count} {page} edges for {sport}."
+            return f"Showing top {total} {page} edges across all sports."
+        return f"Showing top {total} {page} edges for {sport}."
 
     return (
         f"Search for “{prompt}” on {page} – "
-        f"{total_count} high-EV candidates after filters."
+        f"{total} high-EV candidates after filters."
     )
 
 
-# --------- public entrypoint used by api.py ---------
+# -------------------------------------------------------
+# Public entrypoint used by FastAPI (api/main.py)
+# -------------------------------------------------------
 
 
 def generate_tiles(
@@ -300,14 +299,26 @@ def generate_tiles(
     """
     Main function the FastAPI layer calls.
 
-    Returns:
+    Returns JSON shape like:
+
       {
-        "summary": str,
+        "summary": "...",
         "tiles": [
            {
-             id, page, sport, player/label/team_name,
-             stat, line, ev, tier, tier_label,
-             visible, blurred, avgLast5, model, legs (for parlays/teasers) ...
+             "id": "props-1",
+             "page": "props",
+             "sport": "NFL",
+             "player": "Josh Allen",
+             "stat": "Pass+Rush YDS",
+             "line": "295.5",
+             "ev": 6.8,
+             "avgLast5": 30.1,
+             "model": 245.6,
+             "tier": "nickel",
+             "tier_label": "Nickel Play",
+             "visible": false,
+             "blurred": true,
+             ...
            }
         ]
       }
@@ -327,7 +338,7 @@ def generate_tiles(
     tiles = _filter_by_sport(tiles, sport)
     tiles = _filter_by_prompt(tiles, prompt)
 
-    # assign tier + visibility
+    # Attach tier + visibility flags
     for t in tiles:
         ev = float(t.get("ev", 0.0))
         tier_key, tier_label = compute_tier(ev)
@@ -342,3 +353,4 @@ def generate_tiles(
         "summary": summary,
         "tiles": tiles,
     }
+
