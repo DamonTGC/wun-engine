@@ -1,0 +1,16 @@
+{
+  "provider": "theoddsapi",
+  "base_url": "https://api.the-odds-api.com/v4",
+  "api_key_env": "ODDS_API_KEY",
+  "sports": {
+    "NFL": {
+      "sport_key": "americanfootball_nfl",
+      "markets": ["spreads", "totals", "h2h"]
+    },
+    "NBA": {
+      "sport_key": "basketball_nba",
+      "markets": ["spreads", "totals", "h2h"]
+    }
+  },
+  "books": ["betmgm", "draftkings", "fanduel"]
+}

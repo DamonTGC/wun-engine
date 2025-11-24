@@ -1,0 +1,89 @@
+{
+  "NFL": {
+    "straights": {
+      "type": "game",
+      "live_markets": ["spreads", "totals", "h2h"]
+    },
+    "props": {
+      "type": "player",
+      "live_markets": [
+        "player_pass_yds",
+        "player_rush_yds",
+        "player_rec_yds",
+        "player_pass_tds",
+        "player_rush_tds",
+        "player_rec_tds"
+      ]
+    }
+  },
+  "CFB": {
+    "straights": {
+      "type": "game",
+      "live_markets": ["spreads", "totals", "h2h"]
+    },
+    "props": {
+      "type": "player",
+      "live_markets": [
+        "player_pass_yds",
+        "player_rush_yds",
+        "player_rec_yds"
+      ]
+    }
+  },
+  "NBA": {
+    "straights": {
+      "type": "game",
+      "live_markets": ["spreads", "totals", "h2h"]
+    },
+    "props": {
+      "type": "player",
+      "live_markets": [
+        "player_points",
+        "player_rebounds",
+        "player_assists",
+        "player_threes"
+      ]
+    }
+  },
+  "NCAAM": {
+    "straights": {
+      "type": "game",
+      "live_markets": ["spreads", "totals", "h2h"]
+    },
+    "props": {
+      "type": "player",
+      "live_markets": [
+        "player_points",
+        "player_rebounds",
+        "player_assists"
+      ]
+    }
+  },
+  "NHL": {
+    "straights": {
+      "type": "game",
+      "live_markets": ["spreads", "totals", "h2h"]
+    },
+    "props": {
+      "type": "player",
+      "live_markets": [
+        "player_points",
+        "player_assists"
+      ]
+    }
+  },
+  "MLB": {
+    "straights": {
+      "type": "game",
+      "live_markets": ["spreads", "totals", "h2h"]
+    },
+    "props": {
+      "type": "player",
+      "live_markets": [
+        "player_hits",
+        "player_home_runs",
+        "player_strikeouts"
+      ]
+    }
+  }
+}

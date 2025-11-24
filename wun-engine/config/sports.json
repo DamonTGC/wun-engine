@@ -1,0 +1,26 @@
+{
+  "NBA": {
+    "markets": ["ML", "SPREAD", "TOTAL"],
+    "props": ["Points", "Rebounds", "Assists", "PRA"]
+  },
+  "NFL": {
+    "markets": ["ML", "SPREAD", "TOTAL"],
+    "props": ["PassYds", "RushYds", "RecYds", "Pass+Rush"]
+  },
+  "NHL": {
+    "markets": ["ML", "TOTAL"],
+    "props": ["Shots", "Saves", "Assists"]
+  },
+  "MLB": {
+    "markets": ["ML", "TOTAL"],
+    "props": ["Hits", "Strikeouts"]
+  },
+  "CBB": {
+    "markets": ["ML", "SPREAD", "TOTAL"],
+    "props": ["Points", "Rebounds", "Assists"]
+  },
+  "CFB": {
+    "markets": ["ML", "SPREAD", "TOTAL"],
+    "props": ["RushYds", "PassYds", "RecYds"]
+  }
+}
